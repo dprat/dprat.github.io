@@ -1,0 +1,113 @@
+---
+title: "Analyze synthetic bam, seqFF and WisecondorX"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+## WisecondorX :
+predict CNA for the whole cohort
+```{bash eval=FALSE}
+nohup ls -1 /home/mdlab/storage/npz_files/p0_081_dedup.npz /home/mdlab/storage/npz_files/*.npz | while read line; do sample_name=$(echo $line | rev | cut -d '/' -f1 | rev | cut -d '.' -f1);WisecondorX predict $line reference_output.npz "res_wisecondorx/"$sample_name"_output" --bed --plot ; done > wisecondorx_predict.log 2> wisecondorx_predict.error &
+```
+
+predict sex gender for the whole cohort
+
+```{bash eval=FALSE}
+ls -1 /home/mdlab/storage/npz_files/p0_081_dedup.npz /home/mdlab/storage/npz_files/*.npz | while read line; do sample=$(echo $line | rev | cut -d '/' -f1 |rev | cut -d '.' -f1); sex=$(WisecondorX gender $line /home/mdlab/reference_output.npz); echo $sample";"$sex;done > gender_wisecondorx_all.csv
+```
+
+```{bash eval=FALSE}
+```
+
+
+```{bash eval=FALSE}
+cat /Users/davidpratella/projet_ff/data/dedup_and_dupli.txt | while read line; do name=$(echo $line | cut -d ';' -f1);number=$(echo $line | cut -d ';' -f2,3); if grep -q $name /Users/davidpratella/projet_ff/data/extraction_sample_seqff.txt ; then newline=$(grep $name /Users/davidpratella/projet_ff/data/extraction_sample_seqff.txt); echo $newline";"$number; fi ; done > read_number_seqff.csv
+
+echo "Sample;seqFF;raw_read_number;dedup_read_number" | cat /dev/stdin read_number_seqff.csv > temp ; mv temp read_number_seqff.csv
+```
+
+```{r}
+file.readnumber="/Users/davidpratella/projet_ff/data/read_number_seqff.csv"
+df.rn<-read.table(file.readnumber, header=TRUE,sep=';', row.names = 1)
+
+plot(df.rn$seqFF,df.rn$dedup_read_number)
+```
+```{bash eval=FALSE}
+cat /Users/davidpratella/projet_ff/data/dedup_and_dupli.txt | while read line; do name=$(echo $line | cut -d ';' -f1);number=$(echo $line | cut -d ';' -f2,3); if grep -q $name /Users/davidpratella/projet_ff/data/temp_T21_T18.txt ; then newline=$(grep $name /Users/davidpratella/projet_ff/data/temp_T21_T18.txt); echo $newline";"$number; fi ; done > read_number_zscore_T21_T18.csv
+
+echo "Sample;zscore;chr;raw_read_number;dedup_read_number" | cat /dev/stdin read_number_zscore_T21_T18.csv > temp; mv temp read_number_zscore_T21_T18.csv
+```
+
+
+```{r}
+file.rn_T18_T21="/Users/davidpratella/projet_ff/data/read_number_zscore_T21_T18.csv"
+df.rn_T18_T21<-read.table(file.rn_T18_T21, header=TRUE,sep=';', row.names = 1)
+
+library(ggplot2)
+#plot(df.rn_T18_T21$seqFF,df.rn_T18_T21$dedup_read_number)
+ggplot(df.rn_T18_T21, aes(x=zscore, y=dedup_read_number, shape=as.character(chr), color=as.character(chr))) +
+  geom_point()
+
+```
+
+We want to make a PCA for checking the new synthetic bam files, for this we need to generate bins for these new files
+
+```{bash eval=FALSE}
+find /home/mdlab/storage/syntheticbam/archive -name "*.added.sorted.bam" | while read line; do pickle=$(echo $line | sed 's/\.bam/\.pickle/g'); gcc=$(echo $line | sed 's/\.bam/\.gcc/g'); samtools view $line -q 1 | python3 /home/mdlab/script/misc/consam.py -outfile $pickle; python3 /home/mdlab/script/misc/gcc.py $pickle /mnt/freenas/scripts/fetalfraction/data/gccount.txt $gcc; done
+```
+
+
+
+
+# PCA Quality Control for Syntheticbam
+
+We generate the pickle and gcc file for this the different percentage of the new synthetic bam files:
+
+
+/!\ only works this python3 with Biopython package to activate python env:
+```{bash eval=FALSE}
+source activate py37
+```
+
+```{bash eval=FALSE}
+nohup find /home/mdlab/storage/syntheticbam/archive -name "*.added.sorted.bam" | while read line; do pickle=$(echo $line | sed 's/\.bam/\.pickle/g'); gcc=$(echo $line | sed 's/\.bam/\.gcc/g'); samtools view $line -q 1 | python3 /home/mdlab/script/misc/consam.py -outfile $pickle; python3 /home/mdlab/script/misc/gcc.py $pickle /mnt/freenas/scripts/fetalfraction/data/gccount.txt $gcc; done > nohup.log 2>nohup.error &
+
+```
+
+
+Then you have to extract data from the .gcc files, for this you have to use prepare_pcr.py which gives you a value for each bin of each chr (3111 values)
+For now we did it on 2 samples with percentages 20,40,60 and 80.
+
+
+```{bash eval=FALSE}
+
+find /home/mdlab/storage/syntheticbam/archive -name "*.added.sorted.gcc" |while read line ; do 
+nameoutput=$(echo $line |rev | cut -d '/' -f1,2 | rev |sed 's/\.added\.sorted\.gcc//g'| awk -F '/' '{print $2"_"$1}'); newline=$(python prepare_pca.py $line | tr '\n' ';') ; echo $nameoutput";"$newline; done > /home/mdlab/david/bin_syntheticbam_T21.csv
+
+##
+cat bin_syntheticbam_T21.csv | awk 'BEGIN{FS=";";OFS=";"}{$2=""; print $0}' | sed 's/;;/;/g' | rev | sed 's/;//1' | rev > bin_syntheticbam_T21_bis.csv ; mv bin_syntheticbam_T21_bis.csv bin_syntheticbam_T21.csv
+
+```
+
+```{r}
+library(ggplot2)
+library(ggfortify)
+
+file.synthetic="/Users/davidpratella/projet_ff/res_ff/res_from_mdlab_server/bin_syntheticbam_T21.csv"
+file.data="/Users/davidpratella/projet_ff/res_ff/res_from_mdlab_server/bin_gcc_378samples.csv"
+
+bin.synthetic=read.table(file.synthetic,header=TRUE,sep=";",row.name=1)
+bin.data=read.table(file.data,header=TRUE,sep=";",row.name=1)
+
+bin.bind<-rbind(bin.synthetic,bin.data,make.row.names = TRUE)
+##delete col where the sum of the col is egal to 0, otherwise the PCA does not work
+data.without0val<-bin.bind[colSums(bin.bind) > 0]
+
+pca.1<-prcomp(data.without0val, center = TRUE, scale. = TRUE)
+autoplot(pca.1, data = data.without0val) + 
+  scale_color_gradient(low="yellow", high="red") +
+  labs(color='Foetal\nFraction')
+
+```
+
